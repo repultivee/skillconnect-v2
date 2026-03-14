@@ -119,7 +119,7 @@ export default function Layout({ children }) {
             <nav className="sc-nav">
               <NavItem to="/">{labels.home}</NavItem>
               {user && <NavItem to="/create">{labels.create}</NavItem>}
-              {user &&  "admin" && <NavItem to="/admin">{labels.admin}</NavItem>}
+              {userRole === "admin" && <NavItem to="/admin">{labels.admin}</NavItem>}
             </nav>
           </div>
 
