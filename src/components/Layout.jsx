@@ -1,16 +1,9 @@
 import { Link, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
+import { useEffect, useMemo, useState } from "react";
+import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import useAuth from "../hooks/useAuth";
 import { auth, db } from "../firebase/init";
-import { useEffect, useMemo, useState } from "react";
-import {
-  collection,
-  doc,
-  getDoc,
-  onSnapshot,
-  query,
-  where,
-} from "firebase/firestore";
 import { useLang } from "../contexts/lang";
 
 function cx(...arr) {
@@ -20,31 +13,43 @@ function cx(...arr) {
 export default function Layout({ children }) {
   const nav = useNavigate();
   const location = useLocation();
-  const { user, loading } = useAuth();
-  const { lang, setLang, t } = useLang();
+  const authState = useAuth();
+  const user = authState?.user ?? null;
+  const loading = authState?.loading ?? false;
+
+  const langState = useLang();
+  const lang = langState?.lang ?? "ru";
+  const setLang = langState?.setLang ?? (() => {});
+  const t = langState?.t ?? ((key) => key);
 
   const [q, setQ] = useState("");
   const [unreadChats, setUnreadChats] = useState(0);
   const [userRole, setUserRole] = useState("");
 
   useEffect(() => {
-    const loadRole = async () => {
-      if (!user?.uid) {
-        setUserRole("");
-        return;
-      }
+    if (!user?.uid) {
+      setUserRole("");
+      return;
+    }
 
-      try {
-        const snap = await getDoc(doc(db, "users", user.uid));
-        const data = snap.exists() ? snap.data() : null;
-        setUserRole(data?.role || "");
-      } catch (error) {
-        console.error("load role error:", error);
+    const unsub = onSnapshot(
+      doc(db, "users", user.uid),
+      (snap) => {
+        if (!snap.exists()) {
+          setUserRole("");
+          return;
+        }
+
+        const data = snap.data();
+        setUserRole(String(data?.role || "").trim().toLowerCase());
+      },
+      (error) => {
+        console.error("role snapshot error:", error);
         setUserRole("");
       }
-    };
+    );
 
-    loadRole();
+    return () => unsub();
   }, [user?.uid]);
 
   useEffect(() => {
@@ -97,14 +102,14 @@ export default function Layout({ children }) {
     nav(s ? `/?q=${encodeURIComponent(s)}` : "/");
   };
 
-  const NavItem = ({ to, children }) => (
-    <NavLink
-      to={to}
-      className={({ isActive }) => cx("sc-navlink", isActive && "is-active")}
-    >
-      {children}
-    </NavLink>
-  );
+  const showCreate = Boolean(user);
+  const showAdmin = Boolean(user && userRole === "admin");
+  const showChats = Boolean(user);
+  const showUserMenu = Boolean(!loading && user);
+  const showAuthMenu = Boolean(!loading && !user);
+
+  const avatarText = (user?.email || user?.displayName || "U")[0].toUpperCase();
+  const userText = user?.displayName || user?.email?.split("@")[0] || "User";
 
   return (
     <div className="sc-page">
@@ -117,12 +122,32 @@ export default function Layout({ children }) {
             </Link>
 
             <nav className="sc-nav">
-              <NavItem to="/">{labels.home}</NavItem>
-              {user && <NavItem to="/create">{labels.create}</NavItem>}
-              {user && userRole === "admin" && <NavItem to="/admin">{labels.admin}</NavItem>}
+              <NavLink
+                to="/"
+                className={({ isActive }) => cx("sc-navlink", isActive && "is-active")}
+              >
+                {labels.home}
+              </NavLink>
+
+              {showCreate && (
+                <NavLink
+                  to="/create"
+                  className={({ isActive }) => cx("sc-navlink", isActive && "is-active")}
+                >
+                  {labels.create}
+                </NavLink>
+              )}
+
+              {showAdmin && (
+                <NavLink
+                  to="/admin"
+                  className={({ isActive }) => cx("sc-navlink", isActive && "is-active")}
+                >
+                  {labels.admin}
+                </NavLink>
+              )}
             </nav>
           </div>
-
           <form className="sc-search" onSubmit={onSearchSubmit}>
             <span className="sc-search-ico">⌕</span>
             <input
@@ -146,7 +171,7 @@ export default function Layout({ children }) {
               <span className="sc-pill-text">{lang.toUpperCase()}</span>
             </button>
 
-            {user && (
+            {showChats && (
               <button
                 className="sc-iconbtn"
                 type="button"
@@ -182,7 +207,7 @@ export default function Layout({ children }) {
               </button>
             )}
 
-            {loading ? null : user ? (
+            {showUserMenu && (
               <div className="sc-user">
                 <button
                   type="button"
@@ -190,14 +215,10 @@ export default function Layout({ children }) {
                   onClick={() => nav("/profile")}
                   title={labels.profile}
                 >
-                  <span className="sc-avatar">
-                    {(user.email || user.displayName || "U")[0].toUpperCase()}
-                  </span>
+                  <span className="sc-avatar">{avatarText}</span>
 
                   <span className="sc-usertext">
-                    <span className="sc-useremail">
-                      {user.displayName || user.email?.split("@")[0] || "User"}
-                    </span>
+                    <span className="sc-useremail">{userText}</span>
                   </span>
                 </button>
 
@@ -205,7 +226,9 @@ export default function Layout({ children }) {
                   {labels.logout}
                 </button>
               </div>
-            ) : (
+            )}
+
+            {showAuthMenu && (
               <div className="sc-auth">
                 <Link className="sc-ghostlink" to="/login">
                   {labels.login}
